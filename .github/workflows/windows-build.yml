@@ -51,8 +51,8 @@ jobs:
       - name: Build EXEs
         shell: bash
         run: |
-          # Build optimized onefile versions only
-          pyinstaller --noconfirm --clean --windowed --onefile \
+          # Build highly optimized onefile versions for Windows only
+          pyinstaller --noconfirm --clean --windowed --onefile --strip \
             --collect-submodules PySide6.QtCore \
             --collect-submodules PySide6.QtWidgets \
             --collect-submodules PySide6.QtGui \
@@ -67,10 +67,75 @@ jobs:
             --exclude-module torch \
             --exclude-module jupyter \
             --exclude-module IPython \
+            --exclude-module pytest \
+            --exclude-module unittest \
+            --exclude-module doctest \
+            --exclude-module pdb \
+            --exclude-module sqlite3 \
+            --exclude-module xml \
+            --exclude-module email \
+            --exclude-module http \
+            --exclude-module urllib3 \
+            --exclude-module requests \
+            --exclude-module ssl \
+            --exclude-module socket \
+            --exclude-module asyncio \
+            --exclude-module concurrent \
+            --exclude-module multiprocessing.dummy \
+            --exclude-module distutils \
+            --exclude-module setuptools \
+            --exclude-module pip \
+            --exclude-module wheel \
+            --exclude-module pkg_resources \
+            --exclude-module importlib_metadata \
+            --exclude-module zipp \
+            --exclude-module certifi \
+            --exclude-module charset_normalizer \
+            --exclude-module idna \
+            --exclude-module urllib \
+            --exclude-module encodings.idna \
+            --exclude-module encodings.punycode \
+            --exclude-module encodings.mbcs \
+            --exclude-module encodings.oem \
+            --exclude-module encodings.cp1252 \
+            --exclude-module lib2to3 \
+            --exclude-module pydoc \
+            --exclude-module calendar \
+            --exclude-module decimal \
+            --exclude-module fractions \
+            --exclude-module statistics \
+            --exclude-module wave \
+            --exclude-module audioop \
+            --exclude-module chunk \
+            --exclude-module sunau \
+            --exclude-module aifc \
+            --exclude-module sndhdr \
+            --exclude-module colorsys \
+            --exclude-module imghdr \
+            --exclude-module uu \
+            --exclude-module base64 \
+            --exclude-module binhex \
+            --exclude-module binascii \
+            --exclude-module quopri \
+            --exclude-module pty \
+            --exclude-module tty \
+            --exclude-module readline \
+            --exclude-module curses \
+            --exclude-module termios \
+            --exclude-module fcntl \
+            --exclude-module grp \
+            --exclude-module pwd \
+            --exclude-module spwd \
+            --exclude-module crypt \
+            --exclude-module nis \
+            --exclude-module syslog \
+            --exclude-module mmap \
+            --exclude-module resource \
+            --exclude-module _posixsubprocess \
             --upx-dir=. \
             --name "cpu_manager_app" cpu_manager_app.py
             
-          pyinstaller --noconfirm --clean --windowed --onefile \
+          pyinstaller --noconfirm --clean --windowed --onefile --strip \
             --collect-submodules PySide6.QtCore \
             --collect-submodules PySide6.QtWidgets \
             --collect-submodules PySide6.QtGui \
@@ -85,6 +150,71 @@ jobs:
             --exclude-module torch \
             --exclude-module jupyter \
             --exclude-module IPython \
+            --exclude-module pytest \
+            --exclude-module unittest \
+            --exclude-module doctest \
+            --exclude-module pdb \
+            --exclude-module sqlite3 \
+            --exclude-module xml \
+            --exclude-module email \
+            --exclude-module http \
+            --exclude-module urllib3 \
+            --exclude-module requests \
+            --exclude-module ssl \
+            --exclude-module socket \
+            --exclude-module asyncio \
+            --exclude-module concurrent \
+            --exclude-module multiprocessing.dummy \
+            --exclude-module distutils \
+            --exclude-module setuptools \
+            --exclude-module pip \
+            --exclude-module wheel \
+            --exclude-module pkg_resources \
+            --exclude-module importlib_metadata \
+            --exclude-module zipp \
+            --exclude-module certifi \
+            --exclude-module charset_normalizer \
+            --exclude-module idna \
+            --exclude-module urllib \
+            --exclude-module encodings.idna \
+            --exclude-module encodings.punycode \
+            --exclude-module encodings.mbcs \
+            --exclude-module encodings.oem \
+            --exclude-module encodings.cp1252 \
+            --exclude-module lib2to3 \
+            --exclude-module pydoc \
+            --exclude-module calendar \
+            --exclude-module decimal \
+            --exclude-module fractions \
+            --exclude-module statistics \
+            --exclude-module wave \
+            --exclude-module audioop \
+            --exclude-module chunk \
+            --exclude-module sunau \
+            --exclude-module aifc \
+            --exclude-module sndhdr \
+            --exclude-module colorsys \
+            --exclude-module imghdr \
+            --exclude-module uu \
+            --exclude-module base64 \
+            --exclude-module binhex \
+            --exclude-module binascii \
+            --exclude-module quopri \
+            --exclude-module pty \
+            --exclude-module tty \
+            --exclude-module readline \
+            --exclude-module curses \
+            --exclude-module termios \
+            --exclude-module fcntl \
+            --exclude-module grp \
+            --exclude-module pwd \
+            --exclude-module spwd \
+            --exclude-module crypt \
+            --exclude-module nis \
+            --exclude-module syslog \
+            --exclude-module mmap \
+            --exclude-module resource \
+            --exclude-module _posixsubprocess \
             --upx-dir=. \
             --name "memory_manager_app" memory_manager_app.py
 
