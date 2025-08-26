@@ -26,24 +26,38 @@ def _config_dir() -> str:
 CONFIG_PATH = os.path.join(_config_dir(), 'cpu_manager_config.json')
 
 # ------------- CPU Load Worker (top-level for Windows spawn) -------------
-def cpu_worker_loop(duty_value: mp.Value, stop_event: mp.Event, interval: float = 0.5):
+def cpu_worker_loop(duty_value: mp.Value, stop_event: mp.Event, worker_id: int = 0):
+    """单个CPU工作进程，通过调节工作强度来控制CPU占用"""
     try:
         import time
+        import math
     except Exception:
         return
-    # Busy-sleep duty cycle to approximate target utilization per core
+    
+    # 基础工作间隔
+    base_interval = 0.05  # 减少工作时间单位
+    
     while not stop_event.is_set():
         duty = duty_value.value  # 0.0 ~ 1.0
-        duty = 0.0 if duty < 0.0 else (1.0 if duty > 1.0 else duty)
-        busy_time = interval * duty
-        start = time.perf_counter()
-        # Busy phase
-        while (time.perf_counter() - start) < busy_time:
-            pass
-        # Sleep the rest
-        remaining = interval - busy_time
-        if remaining > 0:
-            time.sleep(remaining)
+        duty = max(0.0, min(1.0, duty))
+        
+        if duty > 0.01:  # 只有当需要占用CPU时才工作
+            # 计算工作时间和休息时间
+            work_time = base_interval * duty
+            sleep_time = base_interval * (1.0 - duty)
+            
+            # 执行CPU密集型计算
+            start_time = time.perf_counter()
+            while (time.perf_counter() - start_time) < work_time:
+                # 执行更密集的计算密集型操作
+                _ = sum(i * i * i for i in range(5000))  # 增加计算强度
+            
+            # 休息时间
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+        else:
+            # 如果不需要占用CPU，就休息更长时间
+            time.sleep(0.05)
 
 # ------------- Scheduling helpers -------------
 class TimeWindow(QtCore.QObject):
@@ -70,18 +84,55 @@ class ControlWorker(QtCore.QObject):
     
     @QtCore.Slot()
     def run(self):
+        # 初始化控制参数
+        last_cpu_readings = []
+        max_readings = 5  # 保持最近5次读数用于平滑
+        
         # Periodically measure and adjust duty
         while self.controller.running and self.controller.duty_value and self.controller.stop_event and not self.controller.stop_event.is_set():
-            # psutil with small interval smooths readings
-            current = psutil.cpu_percent(interval=0.8)
-            error = (self.controller.target_percent - current) / 100.0
-            # Proportional control
-            new_duty = self.controller.duty_value.value + self.controller.kp * error
-            new_duty = 0.0 if new_duty < 0.0 else (1.0 if new_duty > 1.0 else new_duty)
-            self.controller.duty_value.value = new_duty
-            self.controller.state_signal.emit(True, new_duty)
-            # Small sleep to yield UI thread
-            QtCore.QThread.msleep(200)
+            try:
+                # 获取当前CPU使用率
+                current = psutil.cpu_percent(interval=1.0)  # 增加测量间隔提高准确性
+                
+                # 平滑CPU读数
+                last_cpu_readings.append(current)
+                if len(last_cpu_readings) > max_readings:
+                    last_cpu_readings.pop(0)
+                
+                # 使用平均值进行控制
+                avg_cpu = sum(last_cpu_readings) / len(last_cpu_readings)
+                
+                # 计算误差
+                error = self.controller.target_percent - avg_cpu
+                
+                # 改进的控制算法
+                current_duty = self.controller.duty_value.value
+                
+                # 根据误差大小调整控制强度
+                if abs(error) > 10:  # 大误差时快速调整
+                    adjustment = self.controller.kp * 2 * (error / 100.0)
+                elif abs(error) > 5:  # 中等误差时正常调整
+                    adjustment = self.controller.kp * (error / 100.0)
+                else:  # 小误差时细微调整
+                    adjustment = self.controller.kp * 0.5 * (error / 100.0)
+                
+                new_duty = current_duty + adjustment
+                new_duty = max(0.0, min(1.0, new_duty))  # 限制在0-1范围内
+                
+                # 避免过度振荡
+                if abs(new_duty - current_duty) < 0.01 and abs(error) < 2:
+                    new_duty = current_duty  # 保持当前值
+                
+                self.controller.duty_value.value = new_duty
+                self.controller.state_signal.emit(True, new_duty)
+                
+                # 控制循环间隔
+                QtCore.QThread.msleep(500)
+                
+            except Exception as e:
+                # 错误处理
+                QtCore.QThread.msleep(1000)
+                
         # exit thread when not running
         QtCore.QThread.currentThread().quit()
 
@@ -99,7 +150,7 @@ class CpuController(QtCore.QObject):
         self.duty_value: mp.Value | None = None
         self.control_thread: QtCore.QThread | None = None
         self.core_count = max(1, os.cpu_count() or 1)
-        self.kp = 0.02  # proportional gain
+        self.kp = 0.15  # 提高比例增益，加快响应速度
 
     def start(self):
         if self.running:
@@ -109,13 +160,16 @@ class CpuController(QtCore.QObject):
         self.stop_event = mp.Event()
         self.duty_value = mp.Value('d', min(1.0, max(0.0, self.target_percent/100.0)))
         self.processes = []
-        for _ in range(self.core_count):
-            p = mp.Process(target=cpu_worker_loop, args=(self.duty_value, self.stop_event, 0.5), daemon=True)
+        # 使用适量进程来控制整体CPU占用，而不是每个核心一个进程
+        worker_count = min(6, max(2, self.core_count // 2))  # 使用核心数的一半，最多6个
+        for i in range(worker_count):
+            p = mp.Process(target=cpu_worker_loop, args=(self.duty_value, self.stop_event, i), daemon=True)
             p.start()
             self.processes.append(p)
         # Control thread adjusts duty based on measured CPU
         self._start_control_loop()
-        self.log_signal.emit(f"已启动 CPU 控制，目标 {self.target_percent:.0f}% ，核心数 {self.core_count}")
+        worker_count = len(self.processes)
+        self.log_signal.emit(f"已启动 CPU 控制，目标 {self.target_percent:.0f}% ，工作进程数 {worker_count}")
         self.state_signal.emit(True, self.duty_value.value if self.duty_value else 0.0)
 
     def stop(self):
