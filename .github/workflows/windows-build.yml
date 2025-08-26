@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-2019, windows-2022]
+        os: [windows-2022, windows-latest]
     
     steps:
     - uses: actions/checkout@v4
@@ -41,10 +41,16 @@ jobs:
     
     - name: 安装UPX压缩工具
       run: |
-        Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-win64.zip" -OutFile "upx.zip"
-        Expand-Archive -Path "upx.zip" -DestinationPath "."
-        $env:PATH += ";$PWD\upx-4.2.1-win64"
-        echo "$PWD\upx-4.2.1-win64" >> $env:GITHUB_PATH
+        try {
+          Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-win64.zip" -OutFile "upx.zip" -ErrorAction Stop
+          Expand-Archive -Path "upx.zip" -DestinationPath "." -ErrorAction Stop
+          $env:PATH += ";$PWD\upx-4.2.1-win64"
+          echo "$PWD\upx-4.2.1-win64" >> $env:GITHUB_PATH
+          echo "UPX installed successfully"
+        } catch {
+          echo "UPX installation failed, continuing without compression"
+          echo "UPX_AVAILABLE=false" >> $env:GITHUB_ENV
+        }
     
     - name: 安装Python依赖
       run: |
@@ -73,8 +79,17 @@ jobs:
     
     - name: 压缩可执行文件
       run: |
-        Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object {
-          upx --best $_.FullName
+        if ($env:UPX_AVAILABLE -ne "false") {
+          Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object {
+            try {
+              upx --best $_.FullName
+              echo "Compressed: $($_.Name)"
+            } catch {
+              echo "Failed to compress: $($_.Name), keeping original"
+            }
+          }
+        } else {
+          echo "UPX not available, skipping compression"
         }
     
     - name: 上传构建产物
