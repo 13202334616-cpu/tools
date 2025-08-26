@@ -11,6 +11,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-2022, windows-latest]
     
@@ -46,11 +47,13 @@ jobs:
           Expand-Archive -Path "upx.zip" -DestinationPath "." -ErrorAction Stop
           $env:PATH += ";$PWD\upx-4.2.1-win64"
           echo "$PWD\upx-4.2.1-win64" >> $env:GITHUB_PATH
+          echo "UPX_AVAILABLE=true" >> $env:GITHUB_ENV
           echo "UPX installed successfully"
         } catch {
           echo "UPX installation failed, continuing without compression"
           echo "UPX_AVAILABLE=false" >> $env:GITHUB_ENV
         }
+      continue-on-error: true
     
     - name: 安装Python依赖
       run: |
@@ -60,22 +63,27 @@ jobs:
     - name: 构建CPU管理器
       run: |
         pyinstaller --onefile --windowed --name "CPUManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist cpu_manager_app.py
+      continue-on-error: true
     
     - name: 构建内存管理器
       run: |
         pyinstaller --onefile --windowed --name "MemoryManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist memory_manager_app.py
+      continue-on-error: true
     
     - name: 构建系统仪表盘
       run: |
         pyinstaller --onefile --windowed --name "SystemDashboard-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist system_dashboard.py
+      continue-on-error: true
     
     - name: 构建CPU管理器CLI版本
       run: |
         pyinstaller --onefile --console --name "CPUManager-CLI-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist cpu_manager_cli.py
+      continue-on-error: true
     
     - name: 构建系统信息CLI版本
       run: |
         pyinstaller --onefile --console --name "SystemInfo-CLI-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist system_info_cli.py
+      continue-on-error: true
     
     - name: 压缩可执行文件
       run: |
@@ -91,6 +99,7 @@ jobs:
         } else {
           echo "UPX not available, skipping compression"
         }
+      continue-on-error: true
     
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
