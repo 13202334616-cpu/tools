@@ -62,6 +62,29 @@ class TimeWindow(QtCore.QObject):
             # Cross-midnight window (e.g., 22:00-02:00)
             return now >= self.start or now <= self.end
 
+# ------------- Control Worker -------------
+class ControlWorker(QtCore.QObject):
+    def __init__(self, controller):
+        super().__init__()
+        self.controller = controller
+    
+    @QtCore.Slot()
+    def run(self):
+        # Periodically measure and adjust duty
+        while self.controller.running and self.controller.duty_value and self.controller.stop_event and not self.controller.stop_event.is_set():
+            # psutil with small interval smooths readings
+            current = psutil.cpu_percent(interval=0.8)
+            error = (self.controller.target_percent - current) / 100.0
+            # Proportional control
+            new_duty = self.controller.duty_value.value + self.controller.kp * error
+            new_duty = 0.0 if new_duty < 0.0 else (1.0 if new_duty > 1.0 else new_duty)
+            self.controller.duty_value.value = new_duty
+            self.controller.state_signal.emit(True, new_duty)
+            # Small sleep to yield UI thread
+            QtCore.QThread.msleep(200)
+        # exit thread when not running
+        QtCore.QThread.currentThread().quit()
+
 # ------------- Controller (non-Qt threads/processes) -------------
 class CpuController(QtCore.QObject):
     log_signal = QtCore.Signal(str)
@@ -98,46 +121,34 @@ class CpuController(QtCore.QObject):
     def stop(self):
         if not self.running:
             return
+        self.running = False
         if self.stop_event:
             self.stop_event.set()
+        # Stop control thread first
+        if self.control_thread is not None:
+            self.control_thread.quit()
+            self.control_thread.wait(1500)
+            self.control_thread = None
+        # Wait for processes to finish
         for p in self.processes:
             if p.is_alive():
                 p.join(timeout=1.0)
                 if p.is_alive():
                     p.terminate()
         self.processes = []
-        # stop control thread
-        self.running = False
-        if self.control_thread is not None:
-            self.control_thread.quit()
-            self.control_thread.wait(1500)
-            self.control_thread = None
         self.state_signal.emit(False, 0.0)
         self.log_signal.emit("已停止 CPU 控制")
 
     def _start_control_loop(self):
         # Use a Qt thread to run the loop safely with signals
         self.control_thread = QtCore.QThread()
-        self.moveToThread(self.control_thread)
-        self.control_thread.started.connect(self._control_loop)
+        # Create a worker object for the thread instead of moving self
+        self.control_worker = ControlWorker(self)
+        self.control_worker.moveToThread(self.control_thread)
+        self.control_thread.started.connect(self.control_worker.run)
         self.control_thread.start()
 
-    @QtCore.Slot()
-    def _control_loop(self):
-        # Periodically measure and adjust duty
-        while self.running and self.duty_value and self.stop_event and not self.stop_event.is_set():
-            # psutil with small interval smooths readings
-            current = psutil.cpu_percent(interval=0.8)
-            error = (self.target_percent - current) / 100.0
-            # Proportional control
-            new_duty = self.duty_value.value + self.kp * error
-            new_duty = 0.0 if new_duty < 0.0 else (1.0 if new_duty > 1.0 else new_duty)
-            self.duty_value.value = new_duty
-            self.state_signal.emit(True, new_duty)
-            # Small sleep to yield UI thread
-            QtCore.QThread.msleep(200)
-        # exit thread when not running
-        QtCore.QThread.currentThread().quit()
+
 
 # ------------- GUI -------------
 class CpuManagerWindow(QtWidgets.QMainWindow):
@@ -230,17 +241,17 @@ class CpuManagerWindow(QtWidgets.QMainWindow):
     def apply_theme(self):
         self.setStyle(QtWidgets.QStyleFactory.create('Fusion'))
         palette = self.palette()
-        palette.setColor(QtGui.QPalette.Window, QtGui.QColor(40, 44, 52))
-        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Base, QtGui.QColor(33, 37, 43))
-        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(40, 44, 52))
-        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(52, 58, 64))
-        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(100, 149, 237))
-        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Window, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Base, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(245, 245, 245))
+        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(240, 240, 240))
+        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(0, 120, 215))
+        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
         self.setPalette(palette)
-        self.setStyleSheet("QGroupBox{font-weight:bold;border:1px solid #555;border-radius:6px;margin-top:8px;} QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 4px;} QPushButton{padding:6px 12px;} QTableWidget{gridline-color:#666;}")
+        self.setStyleSheet("QGroupBox{font-weight:bold;border:1px solid #ccc;border-radius:6px;margin-top:8px;} QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 4px;} QPushButton{padding:6px 12px;} QTableWidget{gridline-color:#ddd;}")
 
     # ---------- Config ----------
     def load_config(self):

@@ -3,6 +3,7 @@ import os
 import json
 import time
 import datetime as dt
+import threading
 from typing import List, Tuple
 
 import psutil
@@ -24,6 +25,60 @@ def _config_dir() -> str:
 
 CONFIG_PATH = os.path.join(_config_dir(), 'memory_manager_config.json')
 
+# ------------- Memory Worker -------------
+class MemoryWorker(QtCore.QObject):
+    log_signal = QtCore.Signal(str)
+    state_signal = QtCore.Signal(bool, int)
+    
+    def __init__(self, controller):
+        super().__init__()
+        self.controller = controller
+    
+    @QtCore.Slot()
+    def run(self):
+        # Hysteresis to avoid thrashing
+        lower = 0.5
+        upper = 0.5
+        touched_index = 0
+        while not self.controller._stop:
+            try:
+                vm = psutil.virtual_memory()
+                current = vm.percent
+                target = self.controller.target_percent
+                
+                with self.controller._lock:
+                    # Calculate required change in percent
+                    if current < target - lower:
+                        # allocate until crossing threshold in small steps
+                        need_percent = (target - current)
+                        step_chunks = max(1, int(need_percent // 1))
+                        for _ in range(step_chunks):
+                            try:
+                                self.controller._chunks.append(bytearray(self.controller.block_size_mb * 1024 * 1024))
+                            except MemoryError:
+                                self.log_signal.emit("内存分配失败：已达到系统限制")
+                                break
+                        self.state_signal.emit(True, len(self.controller._chunks))
+                    elif current > target + upper:
+                        # release some chunks
+                        release_count = max(1, int((current - target) // 1))
+                        if release_count > 0 and self.controller._chunks:
+                            del self.controller._chunks[:release_count]
+                            self.state_signal.emit(True, len(self.controller._chunks))
+                    else:
+                        # Lightly touch one chunk occasionally to keep resident
+                        if self.controller._chunks:
+                            touched_index = (touched_index + 1) % len(self.controller._chunks)
+                            ch = self.controller._chunks[touched_index]
+                            if ch:
+                                ch[0] = (ch[0] + 1) % 256
+                # Sleep to keep CPU overhead low
+                QtCore.QThread.msleep(500)
+            except Exception as e:
+                self.log_signal.emit(f"控制循环错误: {e}")
+                QtCore.QThread.msleep(1000)
+        QtCore.QThread.currentThread().quit()
+
 # ------------- Memory Controller -------------
 class MemoryController(QtCore.QObject):
     log_signal = QtCore.Signal(str)
@@ -36,15 +91,21 @@ class MemoryController(QtCore.QObject):
         self.block_size_mb = 10  # allocation unit
         self._chunks: list[bytearray] = []
         self._thread: QtCore.QThread | None = None
+        self._worker: MemoryWorker | None = None
         self._stop = False
+        self._lock = threading.Lock()  # 添加互斥锁防止资源冲突
 
     def start(self):
         if self.running:
             return
         self._stop = False
         self._thread = QtCore.QThread()
-        self.moveToThread(self._thread)
-        self._thread.started.connect(self._control_loop)
+        self._worker = MemoryWorker(self)
+        self._worker.moveToThread(self._thread)
+        # 连接信号
+        self._worker.log_signal.connect(self.log_signal)
+        self._worker.state_signal.connect(self.state_signal)
+        self._thread.started.connect(self._worker.run)
         self._thread.start()
         self.running = True
         self.log_signal.emit(f"已启动内存控制，目标 {self.target_percent:.0f}% ，块大小 {self.block_size_mb} MB")
@@ -59,50 +120,15 @@ class MemoryController(QtCore.QObject):
             self._thread.quit()
             self._thread.wait(1500)
         self._thread = None
-        # free memory
-        self._chunks.clear()
+        self._worker = None
+        # free memory with lock
+        with self._lock:
+            self._chunks.clear()
         self.running = False
         self.state_signal.emit(False, 0)
         self.log_signal.emit("已停止内存控制并释放占用")
 
-    @QtCore.Slot()
-    def _control_loop(self):
-        # Hysteresis to avoid thrashing
-        lower = 0.5
-        upper = 0.5
-        touched_index = 0
-        while not self._stop:
-            vm = psutil.virtual_memory()
-            current = vm.percent
-            target = self.target_percent
-            # Calculate required change in percent
-            if current < target - lower:
-                # allocate until crossing threshold in small steps
-                need_percent = (target - current)
-                step_chunks = max(1, int(need_percent // 1))
-                for _ in range(step_chunks):
-                    try:
-                        self._chunks.append(bytearray(self.block_size_mb * 1024 * 1024))
-                    except MemoryError:
-                        self.log_signal.emit("内存分配失败：已达到系统限制")
-                        break
-                self.state_signal.emit(True, len(self._chunks))
-            elif current > target + upper:
-                # release some chunks
-                release_count = max(1, int((current - target) // 1))
-                if release_count > 0 and self._chunks:
-                    del self._chunks[:release_count]
-                    self.state_signal.emit(True, len(self._chunks))
-            else:
-                # Lightly touch one chunk occasionally to keep resident
-                if self._chunks:
-                    touched_index = (touched_index + 1) % len(self._chunks)
-                    ch = self._chunks[touched_index]
-                    if ch:
-                        ch[0] = (ch[0] + 1) % 256
-            # Sleep to keep CPU overhead low
-            QtCore.QThread.msleep(500)
-        QtCore.QThread.currentThread().quit()
+
 
 # ------------- Scheduling helpers -------------
 class TimeWindow(QtCore.QObject):
@@ -218,17 +244,17 @@ class MemoryManagerWindow(QtWidgets.QMainWindow):
     def apply_theme(self):
         self.setStyle(QtWidgets.QStyleFactory.create('Fusion'))
         palette = self.palette()
-        palette.setColor(QtGui.QPalette.Window, QtGui.QColor(40, 44, 52))
-        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Base, QtGui.QColor(33, 37, 43))
-        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(40, 44, 52))
-        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(52, 58, 64))
-        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(100, 149, 237))
-        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Window, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Base, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(245, 245, 245))
+        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(240, 240, 240))
+        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(0, 120, 215))
+        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
         self.setPalette(palette)
-        self.setStyleSheet("QGroupBox{font-weight:bold;border:1px solid #555;border-radius:6px;margin-top:8px;} QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 4px;} QPushButton{padding:6px 12px;} QTableWidget{gridline-color:#666;}")
+        self.setStyleSheet("QGroupBox{font-weight:bold;border:1px solid #ccc;border-radius:6px;margin-top:8px;} QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 4px;} QPushButton{padding:6px 12px;} QTableWidget{gridline-color:#ddd;}")
 
     # ---------- Config ----------
     def load_config(self):
