@@ -36,6 +36,13 @@ jobs:
 
 
 
+      - name: Install UPX
+        shell: bash
+        run: |
+          curl -L https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-win64.zip -o upx.zip
+          unzip upx.zip
+          mv upx-4.2.1-win64/upx.exe .
+          
       - name: Install dependencies
         shell: bash
         run: |
@@ -44,13 +51,42 @@ jobs:
       - name: Build EXEs
         shell: bash
         run: |
-          # Build onefile versions
-          pyinstaller --noconfirm --clean --windowed --onefile --collect-all PySide6 --name "cpu_manager_app" cpu_manager_app.py
-          pyinstaller --noconfirm --clean --windowed --onefile --collect-all PySide6 --name "memory_manager_app" memory_manager_app.py
-          
-          # Build onedir versions
-          pyinstaller --noconfirm --clean --windowed --onedir --collect-all PySide6 --name "cpu_manager_app_dir" cpu_manager_app.py
-          pyinstaller --noconfirm --clean --windowed --onedir --collect-all PySide6 --name "memory_manager_app_dir" memory_manager_app.py
+          # Build optimized onefile versions only
+          pyinstaller --noconfirm --clean --windowed --onefile \
+            --collect-submodules PySide6.QtCore \
+            --collect-submodules PySide6.QtWidgets \
+            --collect-submodules PySide6.QtGui \
+            --exclude-module tkinter \
+            --exclude-module matplotlib \
+            --exclude-module numpy \
+            --exclude-module scipy \
+            --exclude-module pandas \
+            --exclude-module PIL \
+            --exclude-module cv2 \
+            --exclude-module tensorflow \
+            --exclude-module torch \
+            --exclude-module jupyter \
+            --exclude-module IPython \
+            --upx-dir=. \
+            --name "cpu_manager_app" cpu_manager_app.py
+            
+          pyinstaller --noconfirm --clean --windowed --onefile \
+            --collect-submodules PySide6.QtCore \
+            --collect-submodules PySide6.QtWidgets \
+            --collect-submodules PySide6.QtGui \
+            --exclude-module tkinter \
+            --exclude-module matplotlib \
+            --exclude-module numpy \
+            --exclude-module scipy \
+            --exclude-module pandas \
+            --exclude-module PIL \
+            --exclude-module cv2 \
+            --exclude-module tensorflow \
+            --exclude-module torch \
+            --exclude-module jupyter \
+            --exclude-module IPython \
+            --upx-dir=. \
+            --name "memory_manager_app" memory_manager_app.py
 
 
 
@@ -61,6 +97,4 @@ jobs:
           path: |
             dist/cpu_manager_app.exe
             dist/memory_manager_app.exe
-            dist/cpu_manager_app_dir/
-            dist/memory_manager_app_dir/
           if-no-files-found: error
