@@ -1,0 +1,318 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label (e.g., v1.0.0). If empty and this is a tag build, the tag name will be used.'
+        required: false
+      company_name:
+        description: 'Company/Publisher name for file metadata'
+        required: false
+      cpu_desc:
+        description: 'File description for CPUManager.exe'
+        required: false
+      memory_desc:
+        description: 'File description for MemoryManager.exe'
+        required: false
+      require_admin:
+        type: boolean
+        description: 'Request admin privileges (UAC) for the EXEs'
+        default: true
+      use_private_pypi:
+        type: boolean
+        description: 'Use private PyPI index if provided'
+        default: false
+      pypi_index_url:
+        description: 'Private PyPI index-url (e.g., https://pypi.company.com/simple)'
+        required: false
+      pypi_extra_index_url:
+        description: 'Extra index url if needed'
+        required: false
+      http_proxy:
+        description: 'HTTP proxy URL (optional)'
+        required: false
+      https_proxy:
+        description: 'HTTPS proxy URL (optional)'
+        required: false
+      s3_upload:
+        type: boolean
+        description: 'Upload artifacts to S3/S3-compatible storage'
+        default: false
+      s3_bucket:
+        description: 'S3 bucket name (e.g., s3://my-bucket or just my-bucket)'
+        required: false
+      s3_prefix:
+        description: 'S3 object key prefix (e.g., releases/tools)'
+        required: false
+      s3_region:
+        description: 'AWS region (e.g., us-east-1)'
+        required: false
+      s3_endpoint:
+        description: 'Custom S3 endpoint for S3-compatible storage (optional)'
+        required: false
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Upgrade pip/setuptools/wheel
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
+      - name: Configure env (version, metadata, proxy, pip index)
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          else
+            echo "VERSION=dev-${{ github.run_number }}" >> $GITHUB_ENV
+          fi
+          # Metadata with defaults
+          echo "COMPANY_NAME=${{ github.event.inputs.company_name || 'Resource Tools' }}" >> $GITHUB_ENV
+          echo "CPU_DESC=${{ github.event.inputs.cpu_desc || 'CPU Resource Dynamic Manager' }}" >> $GITHUB_ENV
+          echo "MEMORY_DESC=${{ github.event.inputs.memory_desc || 'Memory Resource Dynamic Manager' }}" >> $GITHUB_ENV
+          echo "REQUIRE_ADMIN=${{ github.event.inputs.require_admin }}" >> $GITHUB_ENV
+          # Proxies
+          if [ -n "${{ github.event.inputs.http_proxy }}" ]; then echo "HTTP_PROXY=${{ github.event.inputs.http_proxy }}" >> $GITHUB_ENV; fi
+          if [ -n "${{ github.event.inputs.http_proxy }}" ]; then echo "http_proxy=${{ github.event.inputs.http_proxy }}" >> $GITHUB_ENV; fi
+          if [ -n "${{ github.event.inputs.https_proxy }}" ]; then echo "HTTPS_PROXY=${{ github.event.inputs.https_proxy }}" >> $GITHUB_ENV; fi
+          if [ -n "${{ github.event.inputs.https_proxy }}" ]; then echo "https_proxy=${{ github.event.inputs.https_proxy }}" >> $GITHUB_ENV; fi
+          # Private PyPI config
+          echo "USE_PRIVATE_PYPI=${{ github.event.inputs.use_private_pypi }}" >> $GITHUB_ENV
+          if [ -n "${{ github.event.inputs.pypi_index_url }}" ]; then echo "PYPI_INDEX_URL=${{ github.event.inputs.pypi_index_url }}" >> $GITHUB_ENV; fi
+          if [ -n "${{ github.event.inputs.pypi_extra_index_url }}" ]; then echo "PYPI_EXTRA_INDEX_URL=${{ github.event.inputs.pypi_extra_index_url }}" >> $GITHUB_ENV; fi
+
+      - name: Configure pip (private index/proxy)
+        if: env.USE_PRIVATE_PYPI == 'true' || env.PYPI_INDEX_URL != '' || env.PYPI_EXTRA_INDEX_URL != ''
+        shell: bash
+        run: |
+          if [ -n "$PYPI_INDEX_URL" ]; then python -m pip config set global.index-url "$PYPI_INDEX_URL"; fi
+          if [ -n "$PYPI_EXTRA_INDEX_URL" ]; then python -m pip config set global.extra-index-url "$PYPI_EXTRA_INDEX_URL"; fi
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          pip install -r requirements.txt pyinstaller==6.6.0 pyinstaller-hooks-contrib
+
+      - name: Build EXEs (onefile & onedir) with metadata, icons, optional admin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+
+          $ver=$env:VERSION
+          if (-not $ver) { $ver="dev-$env:GITHUB_RUN_NUMBER" }
+          $v = $ver -replace '^v',''
+          $parts = $v.Split('.')
+          $maj = if($parts.Length -ge 1) { [int]$parts[0] } else { 0 }
+          $min = if($parts.Length -ge 2) { [int]$parts[1] } else { 0 }
+          $pat = if($parts.Length -ge 3) { [int]$parts[2] } else { 0 }
+          $year=(Get-Date).Year
+          $company=$env:COMPANY_NAME
+          $cpuDesc=$env:CPU_DESC
+          $memDesc=$env:MEMORY_DESC
+          $uac = if ($env:REQUIRE_ADMIN -eq 'true') { '--uac-admin' } else { '' }
+
+          $cpuVersion = @"
+          VSVersionInfo(
+            ffi=FixedFileInfo(
+              filevers=($maj, $min, $pat, 0),
+              prodvers=($maj, $min, $pat, 0),
+              mask=0x3f,
+              flags=0x0,
+              OS=0x40004,
+              fileType=0x1,
+              subtype=0x0,
+              date=(0, 0)
+            ),
+            StringFileInfo(
+              [
+                StringTable(
+                  '040904B0',
+                  [
+                    StringStruct('CompanyName', '$company'),
+                    StringStruct('FileDescription', '$cpuDesc'),
+                    StringStruct('FileVersion', '$ver'),
+                    StringStruct('InternalName', 'CPUManager'),
+                    StringStruct('LegalCopyright', 'Copyright (C) ' + $year),
+                    StringStruct('OriginalFilename', 'CPUManager.exe'),
+                    StringStruct('ProductName', 'CPUManager'),
+                    StringStruct('ProductVersion', '$ver')
+                  ]
+                )
+              ]
+            ),
+            VarFileInfo([VarStruct('Translation', [1033, 1200])])
+          )
+          "@
+          $cpuVersion | Set-Content -Path build\CPUManagerVersion.txt -Encoding ASCII
+
+          $memVersion = @"
+          VSVersionInfo(
+            ffi=FixedFileInfo(
+              filevers=($maj, $min, $pat, 0),
+              prodvers=($maj, $min, $pat, 0),
+              mask=0x3f,
+              flags=0x0,
+              OS=0x40004,
+              fileType=0x1,
+              subtype=0x0,
+              date=(0, 0)
+            ),
+            StringFileInfo(
+              [
+                StringTable(
+                  '040904B0',
+                  [
+                    StringStruct('CompanyName', '$company'),
+                    StringStruct('FileDescription', '$memDesc'),
+                    StringStruct('FileVersion', '$ver'),
+                    StringStruct('InternalName', 'MemoryManager'),
+                    StringStruct('LegalCopyright', 'Copyright (C) ' + $year),
+                    StringStruct('OriginalFilename', 'MemoryManager.exe'),
+                    StringStruct('ProductName', 'MemoryManager'),
+                    StringStruct('ProductVersion', '$ver')
+                  ]
+                )
+              ]
+            ),
+            VarFileInfo([VarStruct('Translation', [1033, 1200])])
+          )
+          "@
+          $memVersion | Set-Content -Path build\MemoryManagerVersion.txt -Encoding ASCII
+
+          $cpuIconArg = if (Test-Path 'resources\cpu.ico') { '--icon resources\cpu.ico' } else { '' }
+          $memIconArg = if (Test-Path 'resources\memory.ico') { '--icon resources\memory.ico' } else { '' }
+
+          # onefile
+          pyinstaller --noconfirm --clean --windowed --onefile --collect-all PySide6 --name "CPUManager" --version-file build\CPUManagerVersion.txt $cpuIconArg $uac cpu_manager_app.py
+          pyinstaller --noconfirm --clean --windowed --onefile --collect-all PySide6 --name "MemoryManager" --version-file build\MemoryManagerVersion.txt $memIconArg $uac memory_manager_app.py
+          # onedir
+          pyinstaller --noconfirm --clean --windowed --onedir  --collect-all PySide6 --name "CPUManager" --version-file build\CPUManagerVersion.txt $cpuIconArg $uac cpu_manager_app.py
+          pyinstaller --noconfirm --clean --windowed --onedir  --collect-all PySide6 --name "MemoryManager" --version-file build\MemoryManagerVersion.txt $memIconArg $uac memory_manager_app.py
+
+      - name: Code sign executables (optional)
+        if: ${{ secrets.WINDOWS_PFX_BASE64 != '' && secrets.WINDOWS_PFX_PASSWORD != '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path codesign | Out-Null
+          [IO.File]::WriteAllBytes("codesign/codesign.pfx", [Convert]::FromBase64String("${{ secrets.WINDOWS_PFX_BASE64 }}"))
+          $pwd = "${{ secrets.WINDOWS_PFX_PASSWORD }}"
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName)
+          if (-not $signtool) { $signtool = 'signtool.exe' }
+          $files = @(
+            'dist/CPUManager.exe',
+            'dist/MemoryManager.exe',
+            'dist/CPUManager/CPUManager.exe',
+            'dist/MemoryManager/MemoryManager.exe'
+          )
+          foreach ($f in $files) {
+            if (Test-Path $f) { & $signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f codesign/codesign.pfx /p $pwd $f }
+          }
+
+      - name: Package and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $ver=$env:VERSION
+          Copy-Item dist\CPUManager.exe artifacts\CPUManager.exe -Force
+          Copy-Item dist\MemoryManager.exe artifacts\MemoryManager.exe -Force
+          Copy-Item dist\CPUManager.exe artifacts\CPUManager-$ver.exe -Force
+          Copy-Item dist\MemoryManager.exe artifacts\MemoryManager-$ver.exe -Force
+          Compress-Archive -Path artifacts\CPUManager-$ver.exe -DestinationPath artifacts\CPUManager-$ver.zip -Force
+          Compress-Archive -Path artifacts\MemoryManager-$ver.exe -DestinationPath artifacts\MemoryManager-$ver.zip -Force
+          # onedir zips
+          if (Test-Path 'dist/CPUManager') { Compress-Archive -Path dist\CPUManager\* -DestinationPath artifacts\CPUManager-$ver-onedir.zip -Force }
+          if (Test-Path 'dist/MemoryManager') { Compress-Archive -Path dist\MemoryManager\* -DestinationPath artifacts\MemoryManager-$ver-onedir.zip -Force }
+          Compress-Archive -Path artifacts\CPUManager-$ver.exe,artifacts\MemoryManager-$ver.exe -DestinationPath artifacts\ResourceManagers-$ver.zip -Force
+          certutil -hashfile artifacts\CPUManager-$ver.zip SHA256 | Out-File artifacts\CPUManager-$ver.zip.sha256
+          certutil -hashfile artifacts\MemoryManager-$ver.zip SHA256 | Out-File artifacts\MemoryManager-$ver.zip.sha256
+          if (Test-Path 'artifacts/CPUManager-$ver-onedir.zip') { certutil -hashfile artifacts\CPUManager-$ver-onedir.zip SHA256 | Out-File artifacts\CPUManager-$ver-onedir.zip.sha256 }
+          if (Test-Path 'artifacts/MemoryManager-$ver-onedir.zip') { certutil -hashfile artifacts\MemoryManager-$ver-onedir.zip SHA256 | Out-File artifacts\MemoryManager-$ver-onedir.zip.sha256 }
+          certutil -hashfile artifacts\ResourceManagers-$ver.zip SHA256 | Out-File artifacts\ResourceManagers-$ver.zip.sha256
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-${{ env.VERSION }}
+          path: |
+            dist/CPUManager.exe
+            dist/MemoryManager.exe
+            dist/CPUManager/CPUManager.exe
+            dist/MemoryManager/MemoryManager.exe
+            artifacts/*.exe
+            artifacts/*.zip
+            artifacts/*.sha256
+          if-no-files-found: error
+
+      - name: Upload to S3 (optional)
+        if: ${{ github.event.inputs.s3_upload == true && github.event.inputs.s3_bucket != '' && secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ github.event.inputs.s3_region || 'us-east-1' }}
+      - name: S3 upload artifacts via boto3 (optional)
+        if: ${{ github.event.inputs.s3_upload == true && github.event.inputs.s3_bucket != '' && secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+        shell: pwsh
+        run: |
+          pip install boto3 -q
+          $env:S3_BUCKET='${{ github.event.inputs.s3_bucket }}'
+          $env:S3_PREFIX='${{ github.event.inputs.s3_prefix || '' }}'
+          $env:S3_ENDPOINT='${{ github.event.inputs.s3_endpoint || '' }}'
+          $env:S3_REGION='${{ github.event.inputs.s3_region || 'us-east-1' }}'
+          python - << 'PY'
+import os, glob
+import boto3
+from botocore.config import Config
+
+bucket = os.environ['S3_BUCKET']
+prefix = os.environ.get('S3_PREFIX', '')
+version = os.environ.get('VERSION', 'dev')
+endpoint = os.environ.get('S3_ENDPOINT') or None
+region = os.environ.get('S3_REGION') or 'us-east-1'
+s3cfg = {}
+if endpoint:
+    s3cfg['endpoint_url'] = endpoint
+cfg = Config(region_name=region, s3={'addressing_style':'virtual'})
+s3 = boto3.client('s3', config=cfg, **s3cfg)
+dest_prefix = f"{prefix.strip('/') + '/' if prefix else ''}{version}/"
+for path in glob.glob('artifacts/*'):
+    key = dest_prefix + os.path.basename(path)
+    print('upload', path, '->', bucket, key)
+    s3.upload_file(path, bucket, key)
+PY
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/CPUManager.exe
+            dist/MemoryManager.exe
+            dist/CPUManager/CPUManager.exe
+            dist/MemoryManager/MemoryManager.exe
+            artifacts/*.exe
+            artifacts/*.zip
+            artifacts/*.sha256
