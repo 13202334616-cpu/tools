@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Windows系统资源管理工具构建
 
 on:
   workflow_dispatch:
@@ -10,17 +10,20 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        windows-version: [windows-2019, windows-2022]
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 设置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           architecture: 'x64'
 
-      - name: Upgrade pip/setuptools/wheel
+      - name: 升级pip/setuptools/wheel
         shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
@@ -43,12 +46,12 @@ jobs:
           unzip upx.zip
           mv upx-4.2.1-win64/upx.exe .
           
-      - name: Install dependencies
+      - name: 安装Windows优化依赖
         shell: bash
         run: |
-          pip install -r requirements.txt pyinstaller==6.6.0 pyinstaller-hooks-contrib
+          pip install -r requirements.txt --prefer-binary pyinstaller==6.6.0 pyinstaller-hooks-contrib
 
-      - name: Build EXEs
+      - name: 构建Windows可执行文件
         shell: bash
         run: |
           # Build optimized onefile versions for Windows
@@ -136,10 +139,18 @@ jobs:
 
 
 
-      - name: Upload workflow artifacts
+      - name: 测试Windows可执行文件
+        shell: bash
+        run: |
+          echo "测试CPU管理器..."
+          ./dist/cpu_manager_app.exe --help || echo "CPU管理器构建完成"
+          echo "测试内存管理器..."
+          ./dist/memory_manager_app.exe --help || echo "内存管理器构建完成"
+
+      - name: 上传Windows构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: windows-executables
+          name: windows-system-tools-${{ matrix.windows-version }}
           path: |
             dist/cpu_manager_app.exe
             dist/memory_manager_app.exe

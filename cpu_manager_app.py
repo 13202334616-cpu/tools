@@ -49,8 +49,9 @@ def cpu_worker_loop(duty_value: mp.Value, stop_event: mp.Event, worker_id: int =
             # 执行CPU密集型计算
             start_time = time.perf_counter()
             while (time.perf_counter() - start_time) < work_time:
-                # 执行更密集的计算密集型操作
-                _ = sum(i * i * i for i in range(5000))  # 增加计算强度
+                 # 执行更密集的计算密集型操作
+                 _ = sum(i * i * i + math.sin(i) * math.cos(i) for i in range(10000))
+                 _ = [x**2 for x in range(1000)]
             
             # 休息时间
             if sleep_time > 0:
@@ -87,54 +88,80 @@ class ControlWorker(QtCore.QObject):
         # 初始化控制参数
         last_cpu_readings = []
         max_readings = 5  # 保持最近5次读数用于平滑
+        error_count = 0  # 错误计数器
+        max_errors = 10  # 最大错误次数
+        last_health_check = time.time()
         
-        # Periodically measure and adjust duty
-        while self.controller.running and self.controller.duty_value and self.controller.stop_event and not self.controller.stop_event.is_set():
-            try:
-                # 获取当前CPU使用率
-                current = psutil.cpu_percent(interval=1.0)  # 增加测量间隔提高准确性
-                
-                # 平滑CPU读数
-                last_cpu_readings.append(current)
-                if len(last_cpu_readings) > max_readings:
-                    last_cpu_readings.pop(0)
-                
-                # 使用平均值进行控制
-                avg_cpu = sum(last_cpu_readings) / len(last_cpu_readings)
-                
-                # 计算误差
-                error = self.controller.target_percent - avg_cpu
-                
-                # 改进的控制算法
-                current_duty = self.controller.duty_value.value
-                
-                # 根据误差大小调整控制强度
-                if abs(error) > 10:  # 大误差时快速调整
-                    adjustment = self.controller.kp * 2 * (error / 100.0)
-                elif abs(error) > 5:  # 中等误差时正常调整
-                    adjustment = self.controller.kp * (error / 100.0)
-                else:  # 小误差时细微调整
-                    adjustment = self.controller.kp * 0.5 * (error / 100.0)
-                
-                new_duty = current_duty + adjustment
-                new_duty = max(0.0, min(1.0, new_duty))  # 限制在0-1范围内
-                
-                # 避免过度振荡
-                if abs(new_duty - current_duty) < 0.01 and abs(error) < 2:
-                    new_duty = current_duty  # 保持当前值
-                
-                self.controller.duty_value.value = new_duty
-                self.controller.state_signal.emit(True, new_duty)
-                
-                # 控制循环间隔
-                QtCore.QThread.msleep(500)
-                
-            except Exception as e:
-                # 错误处理
-                QtCore.QThread.msleep(1000)
-                
-        # exit thread when not running
-        QtCore.QThread.currentThread().quit()
+        try:
+            # Periodically measure and adjust duty
+            while self.controller.running and self.controller.duty_value and self.controller.stop_event and not self.controller.stop_event.is_set():
+                try:
+                    current_time = time.time()
+                    
+                    # 每5秒进行一次进程健康检查
+                    if current_time - last_health_check > 5.0:
+                        self.controller._check_and_restart_processes()
+                        last_health_check = current_time
+                    
+                    # 获取当前CPU使用率
+                    current = psutil.cpu_percent(interval=1.0)  # 增加测量间隔提高准确性
+                    
+                    # 平滑CPU读数
+                    last_cpu_readings.append(current)
+                    if len(last_cpu_readings) > max_readings:
+                        last_cpu_readings.pop(0)
+                    
+                    # 使用平均值进行控制
+                    avg_cpu = sum(last_cpu_readings) / len(last_cpu_readings)
+                    
+                    # 计算误差
+                    error = self.controller.target_percent - avg_cpu
+                    
+                    # 改进的控制算法
+                    current_duty = self.controller.duty_value.value
+                    
+                    # 根据误差大小调整控制强度
+                    if abs(error) > 10:  # 大误差时快速调整
+                        adjustment = self.controller.kp * 2 * (error / 100.0)
+                    elif abs(error) > 5:  # 中等误差时正常调整
+                        adjustment = self.controller.kp * (error / 100.0)
+                    else:  # 小误差时细微调整
+                        adjustment = self.controller.kp * 0.5 * (error / 100.0)
+                    
+                    new_duty = current_duty + adjustment
+                    new_duty = max(0.0, min(1.0, new_duty))  # 限制在0-1范围内
+                    
+                    # 避免过度振荡
+                    if abs(new_duty - current_duty) < 0.01 and abs(error) < 2:
+                        new_duty = current_duty  # 保持当前值
+                    
+                    self.controller.duty_value.value = new_duty
+                    
+                    # 发送状态更新，包含活跃进程数
+                    alive_count = len([p for p in self.controller.processes if p.is_alive()])
+                    self.controller.state_signal.emit(True, new_duty)
+                    self.controller.log_signal.emit(f"CPU: {avg_cpu:.1f}% | 目标: {self.controller.target_percent:.1f}% | 误差: {error:.1f}% | 占空比: {new_duty:.3f} | 活跃进程: {alive_count}/{len(self.controller.processes)}")
+                    
+                    # 重置错误计数器
+                    error_count = 0
+                    
+                    # 控制循环间隔
+                    QtCore.QThread.msleep(500)
+                    
+                except Exception as e:
+                    error_count += 1
+                    print(f"Control loop error {error_count}: {e}")
+                    if error_count >= max_errors:
+                        print("Too many errors, stopping control loop")
+                        break
+                    # 错误处理
+                    QtCore.QThread.msleep(1000)
+                    
+        except Exception as e:
+            print(f"Fatal error in control loop: {e}")
+        finally:
+            # exit thread when not running
+            QtCore.QThread.currentThread().quit()
 
 # ------------- Controller (non-Qt threads/processes) -------------
 class CpuController(QtCore.QObject):
@@ -160,12 +187,15 @@ class CpuController(QtCore.QObject):
         self.stop_event = mp.Event()
         self.duty_value = mp.Value('d', min(1.0, max(0.0, self.target_percent/100.0)))
         self.processes = []
-        # 使用适量进程来控制整体CPU占用，而不是每个核心一个进程
-        worker_count = min(6, max(2, self.core_count // 2))  # 使用核心数的一半，最多6个
+        # 创建更多工作进程以达到更高CPU使用率
+        worker_count = min(self.core_count, max(4, self.core_count * 3 // 4))
         for i in range(worker_count):
-            p = mp.Process(target=cpu_worker_loop, args=(self.duty_value, self.stop_event, i), daemon=True)
-            p.start()
-            self.processes.append(p)
+            try:
+                p = mp.Process(target=cpu_worker_loop, args=(self.duty_value, self.stop_event, i), daemon=True)
+                p.start()
+                self.processes.append(p)
+            except Exception as e:
+                print(f"Error starting worker process {i}: {e}")
         # Control thread adjusts duty based on measured CPU
         self._start_control_loop()
         worker_count = len(self.processes)
@@ -175,23 +205,63 @@ class CpuController(QtCore.QObject):
     def stop(self):
         if not self.running:
             return
+        print("Stopping CPU controller...")
         self.running = False
         if self.stop_event:
             self.stop_event.set()
         # Stop control thread first
         if self.control_thread is not None:
             self.control_thread.quit()
-            self.control_thread.wait(1500)
+            self.control_thread.wait(3000)  # 等待最多3秒
             self.control_thread = None
-        # Wait for processes to finish
+        
+        # 安全地终止所有进程
         for p in self.processes:
             if p.is_alive():
-                p.join(timeout=1.0)
-                if p.is_alive():
+                try:
                     p.terminate()
+                    p.join(timeout=2)  # 等待2秒
+                    if p.is_alive():
+                        p.kill()  # 强制终止
+                        p.join()
+                except Exception as e:
+                    print(f"Error stopping process: {e}")
+        
         self.processes = []
+        print("CPU controller stopped")
         self.state_signal.emit(False, 0.0)
         self.log_signal.emit("已停止 CPU 控制")
+    
+    def _check_and_restart_processes(self):
+        """检查进程健康状态并重启死亡的进程"""
+        dead_processes = []
+        for i, p in enumerate(self.processes):
+            if not p.is_alive():
+                dead_processes.append(i)
+        
+        if dead_processes:
+            print(f"Found {len(dead_processes)} dead processes, restarting...")
+            
+            # 移除死亡进程
+            for i in reversed(dead_processes):
+                try:
+                    self.processes[i].join(timeout=0.1)
+                except:
+                    pass
+                del self.processes[i]
+            
+            # 重启进程以保持目标数量
+            target_count = min(self.core_count, max(4, self.core_count * 3 // 4))
+            current_count = len(self.processes)
+            
+            for i in range(current_count, target_count):
+                try:
+                    p = mp.Process(target=cpu_worker_loop, args=(self.duty_value, self.stop_event, i), daemon=True)
+                    p.start()
+                    self.processes.append(p)
+                    print(f"Restarted worker process {i}")
+                except Exception as e:
+                    print(f"Error restarting worker process {i}: {e}")
 
     def _start_control_loop(self):
         # Use a Qt thread to run the loop safely with signals

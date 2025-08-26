@@ -1,2 +1,26 @@
-psutil==5.9.8
-PySide6==6.6.1
+# Windows系统资源管理工具核心依赖
+# 专为Windows 10/11和Windows Server 2016+优化
+
+# 核心系统监控库（Windows优化版本）
+psutil>=5.9.0
+
+# GUI框架（原生Windows支持）
+PySide6>=6.5.0
+
+# 数据可视化（Windows渲染优化）
+matplotlib>=3.6.0
+numpy>=1.21.0
+
+# 网络和配置管理
+requests>=2.28.0
+
+# Windows特定依赖
+pywin32>=306; sys_platform == "win32"
+wmi>=1.5.1; sys_platform == "win32"
+
+# 性能监控增强
+psutil[sensors]>=5.9.0
+
+# 日志和配置
+coloredlogs>=15.0
+pyyaml>=6.0
