@@ -8,7 +8,15 @@ echo            🚀 直接启动资源压力测试工具
 echo ============================================================
 echo.
 
-REM 检查是否有可执行版本
+REM 优先检查dist目录中的可执行版本
+if exist "dist\ResourceStressTool.exe" (
+    echo ✅ 发现构建的独立可执行版本，正在启动...
+    echo.
+    start "" "dist\ResourceStressTool.exe"
+    exit /b 0
+)
+
+REM 检查当前目录的可执行版本
 if exist "ResourceStressTool.exe" (
     echo ✅ 发现独立可执行版本，正在启动...
     echo.
@@ -63,4 +71,4 @@ echo    - ResourceStressTool.exe （独立可执行版本）
 echo    - gui_stress_tool_windows.py （Python源码版本）
 echo.
 pause
-exit /b 1 
+exit /b 1
