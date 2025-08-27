@@ -17,6 +17,7 @@ import multiprocessing
 from datetime import datetime
 import platform
 import sys
+import schedule
 
 # Windows特定导入
 if platform.system() == 'Windows':
@@ -50,6 +51,7 @@ class ResourceManager:
         # 定时任务
         self.schedules = []
         self.schedule_thread = None
+        self.schedule_enabled = tk.BooleanVar(value=False)
         
         # 状态变量
         self.current_cpu = tk.StringVar(value="0.0%")
@@ -61,10 +63,10 @@ class ResourceManager:
         
     def setup_window(self):
         """设置主窗口"""
-        self.root.title("服务器资源配置提升工具")
-        self.root.geometry("900x700")
+        self.root.title("服务器资源配置提升工具 v2.0")
+        self.root.geometry("1000x800")
         self.root.resizable(True, True)
-        self.root.configure(bg='#f0f0f0')
+        self.root.configure(bg='#f8f9fa')
         
         # 设置窗口图标（如果有的话）
         try:
@@ -88,43 +90,46 @@ class ResourceManager:
             'border': '#E0E0E0'        # 边框色
         }
         
-        # 自定义样式
+        # 自定义样式 - 增大字体和改进视觉效果
         style.configure('Title.TLabel', 
-                       font=('Microsoft YaHei', 18, 'bold'),
+                       font=('Microsoft YaHei', 22, 'bold'),
                        foreground=colors['dark'],
-                       background='#f0f0f0')
+                       background='#f8f9fa')
         
         style.configure('Heading.TLabel', 
-                       font=('Microsoft YaHei', 12, 'bold'),
+                       font=('Microsoft YaHei', 14, 'bold'),
                        foreground=colors['primary_dark'])
         
         style.configure('Status.TLabel', 
-                       font=('Microsoft YaHei', 10),
+                       font=('Microsoft YaHei', 12),
                        foreground=colors['dark'])
         
         style.configure('Value.TLabel', 
-                       font=('Microsoft YaHei', 11, 'bold'),
+                       font=('Microsoft YaHei', 13, 'bold'),
                        foreground=colors['primary'])
         
-        # 按钮样式
+        # 按钮样式 - 增大字体和内边距
         style.configure('Start.TButton',
-                       font=('Microsoft YaHei', 10, 'bold'),
-                       foreground='white')
+                       font=('Microsoft YaHei', 12, 'bold'),
+                       foreground='white',
+                       padding=(15, 10))
         
         style.configure('Stop.TButton',
-                       font=('Microsoft YaHei', 10, 'bold'),
-                       foreground='white')
+                       font=('Microsoft YaHei', 12, 'bold'),
+                       foreground='white',
+                       padding=(15, 10))
         
         style.configure('Action.TButton',
-                       font=('Microsoft YaHei', 9))
+                       font=('Microsoft YaHei', 11),
+                       padding=(10, 8))
         
         # LabelFrame样式
         style.configure('Modern.TLabelframe',
-                       borderwidth=1,
+                       borderwidth=2,
                        relief='solid')
         
         style.configure('Modern.TLabelframe.Label',
-                       font=('Microsoft YaHei', 11, 'bold'),
+                       font=('Microsoft YaHei', 13, 'bold'),
                        foreground=colors['primary_dark'])
         
     def create_widgets(self):
@@ -382,7 +387,6 @@ class ResourceManager:
         schedule_frame.columnconfigure(0, weight=1)
         
         # 启用定时功能
-        self.schedule_enabled = tk.BooleanVar(value=False)
         enable_frame = ttk.Frame(schedule_frame)
         enable_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 15))
         
@@ -652,13 +656,9 @@ class ResourceManager:
             self.cpu_workers = []
             self.memory_workers = []
             
-            # 启动监控线程
+            # 启动监控线程（包含资源管理逻辑）
             self.monitor_thread = threading.Thread(target=self.monitor_resources, daemon=True)
             self.monitor_thread.start()
-            
-            # 启动管理线程
-            self.management_thread = threading.Thread(target=self.manage_resources, daemon=True)
-            self.management_thread.start()
             
             messagebox.showinfo("成功", f"资源管理已启动\nCPU目标: {cpu_target}%\n内存目标: {memory_target}%")
             print(f"资源管理启动 - CPU目标: {cpu_target}%, 内存目标: {memory_target}%")
@@ -1014,6 +1014,7 @@ class ResourceManager:
                 # 更新界面显示
                 self.cpu_value_label.configure(text=f"{self.cpu_target.get()}%")
                 self.memory_value_label.configure(text=f"{self.memory_target.get()}%")
+                self.update_schedule_tree()
                 
                 messagebox.showinfo("成功", "配置已加载")
                 
@@ -1035,6 +1036,7 @@ class ResourceManager:
             self.cpu_entry.insert(0, "50.0")
             self.memory_entry.delete(0, tk.END)
             self.memory_entry.insert(0, "50.0")
+            self.update_schedule_tree()
             
             messagebox.showinfo("成功", "设置已重置到默认值")
             
