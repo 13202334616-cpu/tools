@@ -22,6 +22,8 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.12'
+        cache: 'pip'
+        cache-dependency-path: 'requirements-minimal.txt'
     
     - name: 升级pip
       run: python -m pip install --upgrade pip
@@ -48,16 +50,17 @@ jobs:
     
     - name: 安装Python依赖
       run: |
-        # Configure pip with retry and timeout settings
-        pip config set global.timeout 300
-        pip config set global.retries 3
+        # Use very conservative settings to avoid network issues
+        python -m pip install --timeout 600 --retries 5 --upgrade pip
         
-        # Install dependencies with explicit retry and timeout
-        pip install --timeout 300 --retries 3 --upgrade pip setuptools wheel
-        pip install --timeout 300 --retries 3 pyinstaller
+        # Install only essential packages one by one
+        pip install --timeout 600 --retries 5 --no-deps psutil
+        pip install --timeout 600 --retries 5 --no-deps pyinstaller
         
-        # Install minimal requirements to avoid network timeouts
-        pip install --timeout 300 --retries 3 -r requirements-minimal.txt
+        # Install pywin32 only on Windows
+        if ($env:RUNNER_OS -eq "Windows") {
+          pip install --timeout 600 --retries 5 --no-deps pywin32
+        }
       continue-on-error: false
     
     - name: 构建CPU管理器
