@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2019, windows-2022, windows-latest]
+        os: [windows-2022, windows-latest]
     
     steps:
     - uses: actions/checkout@v4
@@ -117,7 +117,7 @@ jobs:
           
           ### 支持系统:
           - Windows 10/11
-          - Windows Server 2016/2019/2022/2025
+          - Windows Server 2022/2025
           
           ### 使用说明:
           1. 下载对应Windows版本的工具
