@@ -63,29 +63,14 @@ jobs:
         }
       continue-on-error: false
     
-    - name: 构建CPU管理器
+    - name: 构建服务器资源配置提升工具
       run: |
-        pyinstaller --onefile --windowed --name "CPUManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist cpu_manager_app.py
+        pyinstaller --onefile --windowed --name "ResourceManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist resource_manager.py
       continue-on-error: true
     
-    - name: 构建内存管理器
+    - name: 构建服务器资源配置提升工具（控制台版本）
       run: |
-        pyinstaller --onefile --windowed --name "MemoryManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist memory_manager_app.py
-      continue-on-error: true
-    
-    - name: 构建系统仪表盘
-      run: |
-        pyinstaller --onefile --windowed --name "SystemDashboard-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist system_dashboard.py
-      continue-on-error: true
-    
-    - name: 构建CPU管理器CLI版本
-      run: |
-        pyinstaller --onefile --console --name "CPUManager-CLI-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist cpu_manager_cli.py
-      continue-on-error: true
-    
-    - name: 构建系统信息CLI版本
-      run: |
-        pyinstaller --onefile --console --name "SystemInfo-CLI-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist system_info_cli.py
+        pyinstaller --onefile --console --name "ResourceManager-Console-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist resource_manager.py
       continue-on-error: true
     
     - name: 跳过文件压缩
@@ -110,14 +95,23 @@ jobs:
         files: dist/*.exe
         name: Windows系统资源管理工具 v${{ steps.version.outputs.VERSION }}
         body: |
-          ## Windows系统资源管理工具 v${{ steps.version.outputs.VERSION }}
+          ## 服务器资源配置提升工具 v${{ steps.version.outputs.VERSION }}
           
           ### 包含工具:
-          - **CPUManager**: CPU动态管理工具（GUI版本）
-          - **MemoryManager**: 内存管理工具（GUI版本）
-          - **SystemDashboard**: 系统监控仪表盘
-          - **CPUManager-CLI**: CPU管理工具（命令行版本）
-          - **SystemInfo-CLI**: 系统信息查看工具（命令行版本）
+          - **ResourceManager**: 服务器资源配置提升工具（GUI版本）
+            - CPU和内存动态管理
+            - 定时计划和多时段自动开启
+            - 系统资源监控和状态显示
+            - Windows特定优化
+          - **ResourceManager-Console**: 服务器资源配置提升工具（控制台版本）
+          
+          ### 主要功能:
+          - 🚀 CPU和内存峰值设置
+          - 📊 实时系统资源监控
+          - ⏰ 定时计划管理
+          - 🔧 启动停止按钮控制
+          - 🖥️ Windows系统优化
+          - 📈 冲突避免机制
           
           ### 支持系统:
           - Windows 10/11
@@ -126,7 +120,7 @@ jobs:
           ### 使用说明:
           1. 下载对应Windows版本的工具
           2. 直接运行exe文件，无需安装
-          3. GUI版本提供图形界面操作
-          4. CLI版本支持命令行参数调用
+          3. GUI版本提供现代简约的图形界面
+          4. 控制台版本支持命令行操作
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
