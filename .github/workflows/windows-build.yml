@@ -42,23 +42,52 @@ jobs:
     
     - name: 安装UPX压缩工具
       run: |
-        try {
-          Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-win64.zip" -OutFile "upx.zip" -ErrorAction Stop
-          Expand-Archive -Path "upx.zip" -DestinationPath "." -ErrorAction Stop
-          $env:PATH += ";$PWD\upx-4.2.1-win64"
-          echo "$PWD\upx-4.2.1-win64" >> $env:GITHUB_PATH
-          echo "UPX_AVAILABLE=true" >> $env:GITHUB_ENV
-          echo "UPX installed successfully"
-        } catch {
-          echo "UPX installation failed, continuing without compression"
+        $maxRetries = 3
+        $retryCount = 0
+        $success = $false
+        
+        while ($retryCount -lt $maxRetries -and -not $success) {
+          try {
+            $retryCount++
+            echo "UPX installation attempt $retryCount of $maxRetries"
+            
+            # Download with timeout and retry
+            Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-win64.zip" -OutFile "upx.zip" -TimeoutSec 120 -ErrorAction Stop
+            Expand-Archive -Path "upx.zip" -DestinationPath "." -ErrorAction Stop
+            
+            $env:PATH += ";$PWD\upx-4.2.1-win64"
+            echo "$PWD\upx-4.2.1-win64" >> $env:GITHUB_PATH
+            echo "UPX_AVAILABLE=true" >> $env:GITHUB_ENV
+            echo "UPX installed successfully"
+            $success = $true
+          } catch {
+            echo "UPX installation attempt $retryCount failed: $($_.Exception.Message)"
+            if ($retryCount -lt $maxRetries) {
+              echo "Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
+        }
+        
+        if (-not $success) {
+          echo "UPX installation failed after $maxRetries attempts, continuing without compression"
           echo "UPX_AVAILABLE=false" >> $env:GITHUB_ENV
         }
       continue-on-error: true
     
     - name: 安装Python依赖
       run: |
-        pip install -r requirements.txt
-        pip install pyinstaller
+        # Configure pip with retry and timeout settings
+        pip config set global.timeout 300
+        pip config set global.retries 3
+        
+        # Install dependencies with explicit retry and timeout
+        pip install --timeout 300 --retries 3 --upgrade pip setuptools wheel
+        pip install --timeout 300 --retries 3 pyinstaller
+        
+        # Install requirements with better error handling
+        pip install --timeout 300 --retries 3 -r requirements.txt
+      continue-on-error: false
     
     - name: 构建CPU管理器
       run: |
