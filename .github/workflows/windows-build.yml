@@ -50,27 +50,29 @@ jobs:
     
     - name: 安装Python依赖
       run: |
-        # Use very conservative settings to avoid network issues
-        python -m pip install --timeout 600 --retries 5 --upgrade pip
+        # Install essential build tools first
+        python -m pip install --upgrade pip wheel setuptools
         
-        # Install only essential packages one by one
-        pip install --timeout 600 --retries 5 --no-deps psutil
-        pip install --timeout 600 --retries 5 --no-deps pyinstaller
+        # Install dependencies from requirements.txt if it exists
+        if (Test-Path "requirements.txt") {
+          pip install -r requirements.txt
+        }
         
-        # Install pywin32 only on Windows
+        # Install PyInstaller and Windows-specific packages
+        pip install pyinstaller
         if ($env:RUNNER_OS -eq "Windows") {
-          pip install --timeout 600 --retries 5 --no-deps pywin32
+          pip install pywin32
         }
       continue-on-error: false
     
     - name: 构建服务器资源配置提升工具
       run: |
-        pyinstaller --onefile --windowed --name "ResourceManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist resource_manager.py
+        pyinstaller --onefile --windowed --name "ResourceManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist --clean --noconfirm resource_manager.py
       continue-on-error: true
     
     - name: 构建服务器资源配置提升工具（控制台版本）
       run: |
-        pyinstaller --onefile --console --name "ResourceManager-Console-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist resource_manager.py
+        pyinstaller --onefile --console --name "ResourceManager-Console-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist --clean --noconfirm resource_manager.py
       continue-on-error: true
     
     - name: 跳过文件压缩
