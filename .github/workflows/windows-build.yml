@@ -1,0 +1,128 @@
+name: Windows系统资源管理工具构建
+
+on:
+  push:
+    branches: [ main, master ]
+  create:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-latest]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+    
+    - name: 升级pip
+      run: python -m pip install --upgrade pip
+    
+    - name: 设置版本号
+      id: version
+      run: |
+        if ($env:GITHUB_REF -match "refs/tags/v(.*)")
+        {
+          $version = $matches[1]
+        }
+        else
+        {
+          $version = "1.0.$env:GITHUB_RUN_NUMBER"
+        }
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+        echo "Version: $version"
+    
+    - name: 跳过UPX安装（避免网络问题）
+      run: |
+        echo "跳过UPX安装以避免网络超时问题"
+        echo "UPX_AVAILABLE=false" >> $env:GITHUB_ENV
+      continue-on-error: true
+    
+    - name: 安装Python依赖
+      run: |
+        # Install essential build tools first
+        python -m pip install --upgrade pip wheel setuptools
+        
+        # Install dependencies from requirements.txt if it exists
+        if (Test-Path "requirements.txt") {
+          pip install -r requirements.txt
+        }
+        
+        # Install PyInstaller and Windows-specific packages
+        pip install pyinstaller
+        if ($env:RUNNER_OS -eq "Windows") {
+          pip install pywin32
+        }
+      continue-on-error: false
+    
+    - name: 构建服务器资源配置提升工具
+      run: |
+        pyinstaller --onefile --windowed --name "ResourceManager-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist --clean --noconfirm resource_manager.py
+      continue-on-error: true
+    
+    - name: 构建服务器资源配置提升工具（控制台版本）
+      run: |
+        pyinstaller --onefile --console --name "ResourceManager-Console-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist --clean --noconfirm resource_manager.py
+      continue-on-error: true
+    
+    - name: 跳过文件压缩
+      run: |
+        echo "跳过UPX压缩步骤以简化构建过程"
+        Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object {
+          echo "保持原始文件: $($_.Name)"
+        }
+      continue-on-error: true
+    
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-tools-${{ matrix.os }}-v${{ steps.version.outputs.VERSION }}
+        path: dist/*.exe
+        retention-days: 30
+    
+    - name: 创建发布（仅标签触发）
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/*.exe
+        name: Windows系统资源管理工具 v${{ steps.version.outputs.VERSION }}
+        body: |
+          ## 服务器资源配置提升工具 v${{ steps.version.outputs.VERSION }}
+          
+          ### 包含工具:
+          - **ResourceManager**: 服务器资源配置提升工具（GUI版本）
+            - CPU和内存动态管理
+            - 定时计划和多时段自动开启
+            - 系统资源监控和状态显示
+            - Windows特定优化
+          - **ResourceManager-Console**: 服务器资源配置提升工具（控制台版本）
+          
+          ### 主要功能:
+          - 🚀 CPU和内存峰值设置
+          - 📊 实时系统资源监控
+          - ⏰ 定时计划管理
+          - 🔧 启动停止按钮控制
+          - 🖥️ Windows系统优化
+          - 📈 冲突避免机制
+          
+          ### 支持系统:
+          - Windows 10/11
+          - Windows Server 2022/2025
+          
+          ### 使用说明:
+          1. 下载对应Windows版本的工具
+          2. 直接运行exe文件，无需安装
+          3. GUI版本提供现代简约的图形界面
+          4. 控制台版本支持命令行操作
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

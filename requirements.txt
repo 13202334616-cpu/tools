@@ -2,7 +2,10 @@
 # System Resource Stress Test Tool Dependencies
 
 # 系统信息获取库 - System information library
-psutil>=5.8.0
+psutil>=5.9.0
+
+# 任务调度库 - Task scheduling library
+schedule>=1.2.0
 
 # GUI界面库 (Python内置，无需安装) - GUI library (built-in, no installation needed)
 # tkinter
