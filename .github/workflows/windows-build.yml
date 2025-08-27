@@ -40,39 +40,10 @@ jobs:
         echo "VERSION=$version" >> $env:GITHUB_OUTPUT
         echo "Version: $version"
     
-    - name: 安装UPX压缩工具
+    - name: 跳过UPX安装（避免网络问题）
       run: |
-        $maxRetries = 3
-        $retryCount = 0
-        $success = $false
-        
-        while ($retryCount -lt $maxRetries -and -not $success) {
-          try {
-            $retryCount++
-            echo "UPX installation attempt $retryCount of $maxRetries"
-            
-            # Download with timeout and retry
-            Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-win64.zip" -OutFile "upx.zip" -TimeoutSec 120 -ErrorAction Stop
-            Expand-Archive -Path "upx.zip" -DestinationPath "." -ErrorAction Stop
-            
-            $env:PATH += ";$PWD\upx-4.2.1-win64"
-            echo "$PWD\upx-4.2.1-win64" >> $env:GITHUB_PATH
-            echo "UPX_AVAILABLE=true" >> $env:GITHUB_ENV
-            echo "UPX installed successfully"
-            $success = $true
-          } catch {
-            echo "UPX installation attempt $retryCount failed: $($_.Exception.Message)"
-            if ($retryCount -lt $maxRetries) {
-              echo "Retrying in 10 seconds..."
-              Start-Sleep -Seconds 10
-            }
-          }
-        }
-        
-        if (-not $success) {
-          echo "UPX installation failed after $maxRetries attempts, continuing without compression"
-          echo "UPX_AVAILABLE=false" >> $env:GITHUB_ENV
-        }
+        echo "跳过UPX安装以避免网络超时问题"
+        echo "UPX_AVAILABLE=false" >> $env:GITHUB_ENV
       continue-on-error: true
     
     - name: 安装Python依赖
@@ -85,8 +56,8 @@ jobs:
         pip install --timeout 300 --retries 3 --upgrade pip setuptools wheel
         pip install --timeout 300 --retries 3 pyinstaller
         
-        # Install requirements with better error handling
-        pip install --timeout 300 --retries 3 -r requirements.txt
+        # Install minimal requirements to avoid network timeouts
+        pip install --timeout 300 --retries 3 -r requirements-minimal.txt
       continue-on-error: false
     
     - name: 构建CPU管理器
@@ -114,19 +85,11 @@ jobs:
         pyinstaller --onefile --console --name "SystemInfo-CLI-v${{ steps.version.outputs.VERSION }}-${{ matrix.os }}" --distpath dist system_info_cli.py
       continue-on-error: true
     
-    - name: 压缩可执行文件
+    - name: 跳过文件压缩
       run: |
-        if ($env:UPX_AVAILABLE -ne "false") {
-          Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object {
-            try {
-              upx --best $_.FullName
-              echo "Compressed: $($_.Name)"
-            } catch {
-              echo "Failed to compress: $($_.Name), keeping original"
-            }
-          }
-        } else {
-          echo "UPX not available, skipping compression"
+        echo "跳过UPX压缩步骤以简化构建过程"
+        Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object {
+          echo "保持原始文件: $($_.Name)"
         }
       continue-on-error: true
     
