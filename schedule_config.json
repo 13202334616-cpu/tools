@@ -1,0 +1,54 @@
+{
+  "schedules": [
+    {
+      "name": "工作日晚间压力测试",
+      "start_time": "22:00",
+      "end_time": "06:00",
+      "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      "cpu_target": 70,
+      "cpu_max": 85,
+      "memory_mb": 1024,
+      "memory_max_percent": 80,
+      "enabled": true
+    },
+    {
+      "name": "周末深度测试",
+      "start_time": "20:00",
+      "end_time": "08:00",
+      "days": ["saturday", "sunday"],
+      "cpu_target": 85,
+      "cpu_max": 95,
+      "memory_mb": 2048,
+      "memory_max_percent": 85,
+      "enabled": true
+    },
+    {
+      "name": "午休轻度测试",
+      "start_time": "12:00",
+      "end_time": "14:00",
+      "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      "cpu_target": 40,
+      "cpu_max": 50,
+      "memory_mb": 512,
+      "memory_max_percent": 70,
+      "enabled": true
+    },
+    {
+      "name": "凌晨维护测试",
+      "start_time": "02:00",
+      "end_time": "04:00",
+      "days": ["wednesday"],
+      "cpu_target": 90,
+      "cpu_max": 95,
+      "memory_mb": 3072,
+      "memory_max_percent": 90,
+      "enabled": true
+    }
+  ],
+  "global_settings": {
+    "check_interval": 30,
+    "log_level": "INFO",
+    "emergency_stop_hour": 8,
+    "safe_mode": true
+  }
+}

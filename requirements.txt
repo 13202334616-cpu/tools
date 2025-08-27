@@ -1,0 +1,21 @@
+# 系统资源压力测试工具依赖包
+# System Resource Stress Test Tool Dependencies
+
+# 系统信息获取库 - System information library
+psutil>=5.8.0
+
+# GUI界面库 (Python内置，无需安装) - GUI library (built-in, no installation needed)
+# tkinter
+
+# 其他标准库 (Python内置，无需安装) - Other standard libraries (built-in, no installation needed)
+# threading
+# multiprocessing
+# json
+# os
+# sys
+# platform
+# subprocess
+# datetime
+# queue
+# logging
+# time
